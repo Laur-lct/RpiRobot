@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Camera page</title>
+<script src="js/flowplayer-3.2.13.min.js"></script>
+<script src="js/jquery.min.js"></script>
+<script src="js/stick.js"></script>
+<style>
+    body {
+        font-family: Tahoma, Verdana, Arial, sans-serif;
+    }
+    #playerContainer {
+		width: 640px;
+		height: 480px;
+		margin:auto;
+		//float:left;
+    }
+	#controlArea {
+		position: relative;
+		width: 400px;
+		height:400px;
+		margin:auto;
+		//border: 1px solid red;
+		//float:right;
+	}
+</style>
+</head>
+<body>
+<div id="playerContainer" ></div>
+<div id="controlArea">
+	<canvas id="stage" width="400" height="400" ></canvas>	
+</div>
+<input type="button" value="light" onclick=" mi.lights=(int)(!mi.lights);">
+<script>
+flowplayer("playerContainer", "/flash/flowplayer-3.2.18.swf", {
+                clip: {
+		    autoPlay: true,
+                    url: 'live',
+                    provider: 'rtmp',
+                    live: true,
+                    bufferLength: 0,
+                    bufferTime: 0,
+                },
+
+                plugins: {
+                     rtmp: {
+                        url: 'flowplayer.rtmp-3.2.3.swf',
+                        netConnectionUrl: 'rtmp://'+window.location.hostname+':1935/rtmp'
+                    }
+                }
+            });
+//stick
+var canvas = document.getElementById("stage");
+var context = canvas.getContext("2d");
+var rect = canvas.getBoundingClientRect();
+
+var stick = new Stick(100);
+var threshold = 0.1;
+var image = new Image();
+var mi = {l_speed:0,r_speed:0,lights=0};
+var sentMi = {l_speed:0,r_speed:0,lights=0};
+var sentTS =Date.now();
+
+var resendInterval = 1800;
+var minSendInterval = 65;
+
+function draw () {
+	context.clearRect(0, 0, rect.width, rect.height);
+	drawValue();
+	drawStick();
+};
+
+function drawValue () {
+	context.save();
+	context.strokeText("x="+mi.l_speed+", y="+mi.r_speed+",l="+stick.normalLength,5,15);
+	context.restore();
+};
+
+function drawStick () {
+	
+	context.save();
+	// Limit
+	context.drawImage(
+		image,
+		0, 0,
+		88, 88,
+		stick.limit.x - stick.maxLength*2, stick.limit.y - stick.maxLength*2,
+		stick.maxLength*4, stick.maxLength*4
+	);
+	// Input
+	var knobSize = 62;
+	context.drawImage(
+		image,
+		89, 14,
+		knobSize, knobSize,
+		stick.input.x - (knobSize * 1.5), stick.input.y - (knobSize * 1.5),
+		knobSize*3, knobSize*3
+	);
+	context.restore();
+};
+
+function StartMove(e){
+	e.preventDefault();
+        var x = e.touches? e.touches[0].clientX : e.clientX;
+        var y = e.touches? e.touches[0].clientY : e.clientY;
+	stick.setLimitXY(x - rect.left, y - rect.top);
+	stick.setInputXY(x - rect.left, y - rect.top);
+	stick.active = true;
+	main();
+}
+
+function Move(e){
+	if (stick.active){
+		e.preventDefault();
+		var x = e.touches? e.touches[0].clientX : e.clientX;
+        	var y = e.touches? e.touches[0].clientY : e.clientY;
+		stick.setInputXY(x - rect.left, y - rect.top);
+		main();
+	}
+}
+
+function EndMove(e){
+	stick.active = false;
+	stick.setLimitXY(rect.width/2,rect.height/2);
+	stick.setInputXY(rect.width/2,rect.height/2);
+	main();
+}
+
+// bind keyboard events to game functions (movement, etc)
+var keys = {
+	fw:false,
+	bw:false,
+	tl:false,
+	tr:false
+	};
+function bindKeys() {
+	document.onkeydown = function(e) {
+		e = e || window.event;
+        	switch (e.keyCode) { // which key was pressed?
+			case 38: // up, move player forward, ie. increase speed
+            		case 87:
+				e.preventDefault();
+				if (!keys.fw){
+					stick.input.y-=stick.maxLength/2;
+					keys.fw = true;
+					main();
+				}
+                	break;
+            		case 40: // down, move player backward, set negative speed
+            		case 83:
+				e.preventDefault();
+				if (!keys.bw){
+					stick.input.y+=stick.maxLength/2;
+					keys.bw=true;
+					main();
+				}
+                	break;
+			case 37: // left, rotate player left
+            		case 65:
+                		e.preventDefault();
+				if (!keys.tl){
+					stick.input.x-=stick.maxLength/2;
+					keys.tl=true;
+					main();
+				}
+                	break;
+			case 39: // right, rotate player right
+            		case 68:
+                		e.preventDefault();
+				if (!keys.tr){
+					stick.input.x+=stick.maxLength/2;
+					keys.tr=true;
+					main();
+				}
+                	break;
+		}
+	};
+	document.onkeyup = function(e) {
+		e = e || window.event;
+        	switch (e.keyCode) {
+			case 38:
+			case 87:
+				e.preventDefault();
+				if(keys.fw){
+					stick.input.y+=stick.maxLength/2;
+					keys.fw=false;
+					main();
+				}
+               		break;
+			case 40:
+            		case 83:
+                		e.preventDefault();
+				if (keys.bw){
+					stick.input.y-=stick.maxLength/2;
+					keys.bw = false;
+					main();
+				}
+                	break;
+			case 37:
+			case 65:
+				e.preventDefault();
+				if (keys.tl){
+					stick.input.x+=stick.maxLength/2;
+					keys.tl = false;
+					main();
+				}
+                	break;
+			case 39:
+            		case 68:
+                		e.preventDefault();
+				if (keys.tr){
+					stick.input.x-=stick.maxLength/2;
+					keys.tr = false;
+					main();
+				}
+			break;
+		}
+	};
+}
+
+function init () {
+	$(window).resize(function(){ rect = canvas.getBoundingClientRect();});
+	$(canvas).on({
+			'mousedown':StartMove,
+			'touchstart':StartMove
+		});
+	$(document).on({
+			'mousemove':Move,
+			'touchmove':Move
+		});
+	$(document).on({
+			'mouseup': EndMove,
+			'touchend':EndMove,
+			'touchcancel':EndMove
+		});
+	bindKeys();
+		
+	stick.setLimitXY(rect.width/2,rect.height/2);
+	stick.setInputXY(rect.width/2,rect.height/2);
+	image.src = "img/stick.png";
+	image.onload = function () {
+		main();
+		setInterval(sendMotorInput,minSendInterval);
+	};
+};
+
+function main () {
+	stick.update();
+	updateInput();
+	draw();
+};
+
+function updateInput () {
+	mi.l_speed =0;
+	mi.r_speed =0;
+	if (/*stick.active && */stick.normalLength > threshold) {
+		mi.l_speed = stick.normalLength * stick.normal.y - stick.normalLength * stick.normal.x * 0.5;
+		mi.r_speed = stick.normalLength * stick.normal.y + stick.normalLength * stick.normal.x * 0.5;
+		var ratio = stick.normalLength/Math.abs(mi.l_speed);
+		if (ratio < 1){
+			mi.l_speed *= ratio;
+			mi.r_speed *= ratio;
+		}
+		ratio = stick.normalLength/Math.abs(mi.r_speed);
+		if(ratio<1){
+			mi.l_speed *= ratio;
+			mi.r_speed *= ratio;
+		}
+		mi.l_speed = Math.round(mi.l_speed * 100);
+		mi.r_speed = Math.round(mi.r_speed * 100);
+	}
+};
+
+function sendMotorInput(){
+	//do not send too often or same values
+	var msek = Date.now() - sentTS;
+	if (mi.l_speed == sentMi.l_speed && mi.r_speed == sentMi.r_speed && mi.lights == sentMi.lights)
+		if ((mi.l_speed == 0 && mi.r_speed == 0) || msek < resendInterval)
+			return;
+	else if (msek < minSendInterval)
+		return;
+	sentTS = Date.now();
+	sentMi.l_speed=mi.l_speed;
+	sentMi.r_speed=mi.r_speed;
+	sentMi.lights = mi.lights;
+	$.ajax({
+	    url:"http://"+window.location.hostname+
+		"/robotInput.cgi?l_speed="+sentMi.r_speed+"&r_speed="+sentMi.l_speed+"&lights="+sentMi.lights,
+	    cache: false,
+	})
+	.fail(function( data ) {
+		console.log( "request failed" );
+	})
+	.done(function( data ) {
+		console.log( "response sample:", data.slice( 0, 100 ) );
+	});
+}
+
+init();
+</script>
+</body>
+</html>
