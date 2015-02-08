@@ -26,19 +26,26 @@ void SetMotorsValue(unsigned char lPercent,unsigned char rPercent, bool isRevers
 {
 	lReverse = isReverseL;
 	rReverse = isReverseR;
+	lPercent = min(100,lPercent);
+	rPercent = min(100,rPercent);
 	
-	lDesiredPower = min(100,lPercent);
-	lRealPower = lDesiredPower;
-
-	rDesiredPower = min(100,rPercent);
-	rRealPower = rDesiredPower;
+	if (lDesiredPower != lPercent)
+	{
+		lDesiredPower = lPercent;
+		lRealPower = lDesiredPower;
+	}
+	if (rDesiredPower != rPercent)
+	{
+		rDesiredPower = rPercent;
+		rRealPower = rDesiredPower;
+	}
 	//drop enc value
 	lCurSpeed=0;
 	rCurSpeed=0;
 	
-	digitalWrite(lMotorDirPin, lReverse);
+	digitalWrite(lMotorDirPin, !lReverse);
 	softPwmWrite(lMotorSpeedPin,lRealPower);
-	digitalWrite(rMotorDirPin, !rReverse);
+	digitalWrite(rMotorDirPin, rReverse);
 	softPwmWrite(rMotorSpeedPin,rRealPower);
 	DBG_ONLY(printf("Current l=%i, r=%i.\n",lRealPower,rRealPower));
 	
@@ -105,9 +112,9 @@ bool SyncMotors()
   char absDiff2 = rRealPower - rDesiredPower;
   bool isSameSign = (absDiff1 ^ absDiff2) >= 0;
   char changeAmount = (abs(ratioDiff)>0.25 ? 3 : (abs(ratioDiff)>0.10 ? 2 : 1));
-  DBG_ONLY(printf("ratioDiff=%f\n",ratioDiff));
+  DBG_ONLY(printf("curSpeed=%i %i,  ratioDiff=%f\n",lCurSpeed,rCurSpeed, ratioDiff));
   //lmotor speed compared to rmotor speed is slower then desired
-  if (ratioDiff < -0.01f){
+  if (ratioDiff < -0.004f){
     // here we have two options - either speed up l or slow down r.
     // we choose that change, which will keep overall real power closer to desired value
     // e. g. any motor will always try to keep its power as close to desired as possible.
@@ -118,7 +125,7 @@ bool SyncMotors()
     return true;
   }
   //lmotor speed compared to rmotor speed is faster then desired
-  else if (ratioDiff > 0.01f){
+  else if (ratioDiff > 0.004f){
     // same two options - either slow down l or speed up r.
     if (rRealPower == 100 || (isSameSign && absDiff1 <= absDiff2) || (!isSameSign && absDiff1 >= absDiff2))
       lRealPower-=min(changeAmount,lRealPower);
@@ -151,10 +158,11 @@ void UpdateMotors()
 	}
 	if (changed)
 	{
-		digitalWrite(lMotorDirPin, lReverse);
+		digitalWrite(lMotorDirPin, !lReverse);
 		softPwmWrite(lMotorSpeedPin,lRealPower);
-		digitalWrite(rMotorDirPin, !rReverse);
+		digitalWrite(rMotorDirPin, rReverse);
 		softPwmWrite(rMotorSpeedPin,rRealPower);
+		DBG_ONLY(printf("Calibrated to l=%i, r=%i\n",lRealPower,rRealPower));
 	}
 }
 
