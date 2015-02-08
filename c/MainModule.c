@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -21,7 +22,7 @@ unsigned short cycleNum = 0;
 
 int autoStopAfter = AUTO_STOP_DELAY;
 
-void SetMotorsValue(unsigned char lPercent,unsigned char rPercent,boolean isReverseL,boolean isReverseR)
+void SetMotorsValue(unsigned char lPercent,unsigned char rPercent, bool isReverseL,char isReverseR)
 {
 	lReverse = isReverseL;
 	rReverse = isReverseR;
@@ -96,12 +97,12 @@ void setup()
     DBG_ONLY(printf("SetupComplete\n"));
 }
 
-boolean SyncMotors()
+bool SyncMotors()
 {
-  float ratioDiff = (float)lCurSpeed / lCurSpeed + rCurSpeed) - (float)lDesiredPower / (lDesiredPower + rDesiredPower);
+  float ratioDiff = (float)(lCurSpeed / lCurSpeed + rCurSpeed) - (float)lDesiredPower / (lDesiredPower + rDesiredPower);
   char absDiff1 = lRealPower - lDesiredPower;
   char absDiff2 = rRealPower - rDesiredPower;
-  boolean isSameSign = (absDiff1 ^ absDiff2) >= 0;
+  bool isSameSign = (absDiff1 ^ absDiff2) >= 0;
   char changeAmount = (abs(ratioDiff)>0.25 ? 3 : (abs(ratioDiff)>0.10 ? 2 : 1));
   //DBG_ONLY(printf("ratioDiff=%d\n",ratioDiff));
   //lmotor speed compared to rmotor speed is slower then desired
@@ -129,7 +130,7 @@ boolean SyncMotors()
 
 void UpdateMotors()
 {
-	boolean changed = false;
+	bool changed = false;
 	if (lDesiredPower == rDesiredPower && lDesiredPower >5)
 		changed |= SyncMotors();
 	if (lRealPower < lDesiredPower && rRealPower < rDesiredPower)
