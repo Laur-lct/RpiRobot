@@ -22,7 +22,7 @@ unsigned short cycleNum = 0;
 
 int autoStopAfter = AUTO_STOP_DELAY;
 
-void SetMotorsValue(unsigned char lPercent,unsigned char rPercent, bool isReverseL,char isReverseR)
+void SetMotorsValue(unsigned char lPercent,unsigned char rPercent, bool isReverseL,bool isReverseR)
 {
 	lReverse = isReverseL;
 	rReverse = isReverseR;
@@ -59,10 +59,9 @@ PI_THREAD (myThread)
     {
         if (read(fd,c,3)==3)
         {
-			c[0]-=128;
-			c[1]-=128;
-			DBG_ONLY(printf("Got l=%i, r=%i.\n",c[0], c[1]));
-			SetMotorsValue(abs(c[0]),abs(c[1]),c[0] < 0,c[1] < 0);
+			int l = c[0]-128;
+			int r = c[1]-128;
+			SetMotorsValue(abs(l),abs(r),l < 0,r < 0);
             //temp
 			digitalWrite(lightsPin, c[2]==1);
         }
@@ -99,12 +98,14 @@ void setup()
 
 bool SyncMotors()
 {
-  float ratioDiff = (float)(lCurSpeed / lCurSpeed + rCurSpeed) - (float)lDesiredPower / (lDesiredPower + rDesiredPower);
+    if (lCurSpeed + rCurSpeed == 0)
+	    return false;
+  float ratioDiff = (float)lCurSpeed / (lCurSpeed + rCurSpeed) - (float)lDesiredPower / (lDesiredPower + rDesiredPower);
   char absDiff1 = lRealPower - lDesiredPower;
   char absDiff2 = rRealPower - rDesiredPower;
   bool isSameSign = (absDiff1 ^ absDiff2) >= 0;
   char changeAmount = (abs(ratioDiff)>0.25 ? 3 : (abs(ratioDiff)>0.10 ? 2 : 1));
-  //DBG_ONLY(printf("ratioDiff=%d\n",ratioDiff));
+  DBG_ONLY(printf("ratioDiff=%f\n",ratioDiff));
   //lmotor speed compared to rmotor speed is slower then desired
   if (ratioDiff < -0.01f){
     // here we have two options - either speed up l or slow down r.
@@ -132,7 +133,10 @@ void UpdateMotors()
 {
 	bool changed = false;
 	if (lDesiredPower == rDesiredPower && lDesiredPower >5)
+	{	
+		DBG_ONLY(printf("Calibrating... speed l=%i,r=%i\n", lCurSpeed,rCurSpeed));
 		changed |= SyncMotors();
+	}
 	if (lRealPower < lDesiredPower && rRealPower < rDesiredPower)
 	{
 		lRealPower++;

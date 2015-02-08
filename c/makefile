@@ -1,0 +1,1 @@
+sudo gcc MainModule.c -o RpiRobot -lwiringPi -lpthread

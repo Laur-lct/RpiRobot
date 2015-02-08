@@ -1,6 +1,4 @@
-#define DEBUG 
-
-
+//#define DEBUG 
 #define AUTO_STOP_DELAY 2500
 #define CYCLE_DELAY 20
 #define CYCLES_PER_CALIBRATION 10  // calibration will occur every CYCLE_DELAY*CYCLES_PER_CALIBRATION msek
@@ -9,12 +7,12 @@
 // Pin number declarations. We're using the Broadcom chip pin numbers.
 const char rMotorSpeedPin = 23;
 const char rMotorDirPin = 24;
-const char rEncoderPin = 28;
+const char rEncoderPin = 20;
 const char lMotorSpeedPin = 13;
 const char lMotorDirPin = 19;
-const char lEncoderPin = 3;
+const char lEncoderPin = 22;
 
-const char lightsPin = 26;
+const char lightsPin = 12;
 
 /* helper macro */
 // a macro that executes one line of code only if DEBUG flag is set.
