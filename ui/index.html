@@ -26,11 +26,11 @@
 </style>
 </head>
 <body>
+<input type="button" value="light" onclick=" mi.lights= mi.lights? 0:1);" />
 <div id="playerContainer" ></div>
 <div id="controlArea">
 	<canvas id="stage" width="400" height="400" ></canvas>	
 </div>
-<input type="button" value="light" onclick=" mi.lights=(int)(!mi.lights);">
 <script>
 flowplayer("playerContainer", "/flash/flowplayer-3.2.18.swf", {
                 clip: {
@@ -213,6 +213,11 @@ function bindKeys() {
 					keys.tr = false;
 					main();
 				}
+			break;
+			case 32:
+			case 17:
+			case 76:
+				mi.lights=mi.lights? 0:1;
 			break;
 		}
 	};

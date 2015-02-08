@@ -4,69 +4,88 @@
 #include <stdio.h>
 #include <wiringPi.h>
 #include <softPwm.h>
+#include "Constants.h"
 //#include "utils/json.h" //output json
 
-#ifndef max
-#define max(a,b) (((a) > (b)) ? (a) : (b))
-#define min(a,b) (((a) < (b)) ? (a) : (b))
-#endif
+char lReverse =0; // 0 -fwd, 1 backwd
+char rReverse =0;
+short lDesiredPower =0;
+short rDesiredPower =0;
+short lRealPower =0;
+short rRealPower =0;
 
-#define AUTO_STOP_DELAY 2500
-#define CYCLE_DELAY 20
+unsigned int lCurSpeed =0;
+unsigned int rCurSpeed =0;
 
-// Pin number declarations. We're using the Broadcom chip pin numbers.
-const int rMotorSpeedPin = 23;
-const int rMotorDirPin = 24;
-const int lMotorSpeedPin = 13;
-const int lMotorDirPin = 19;
-const int lightsPin = 26;
-
-const char verbose = 1;
-const int speedChangeStep = 8;
-
-int lCurSpeed =0;
-int rCurSpeed =0;
-int lDesiredSpeed =0;
-int rDesiredSpeed =0;
+unsigned short cycleNum = 0;
 
 int autoStopAfter = AUTO_STOP_DELAY;
+
+void SetMotorsValue(unsigned char lPercent,unsigned char rPercent,boolean isReverseL,boolean isReverseR)
+{
+	lReverse = isReverseL;
+	rReverse = isReverseR;
+	
+	lDesiredPower = min(100,lPercent);
+	lRealPower = lDesiredPower;
+
+	rDesiredPower = min(100,rPercent);
+	rRealPower = rDesiredPower;
+	//drop enc value
+	lCurSpeed=0;
+	rCurSpeed=0;
+	
+	digitalWrite(lMotorDirPin, lReverse);
+	softPwmWrite(lMotorSpeedPin,lRealPower);
+	digitalWrite(rMotorDirPin, !rReverse);
+	softPwmWrite(rMotorSpeedPin,rRealPower);
+	DBG_ONLY(printf("Current l=%i, r=%i.\n",lRealPower,rRealPower));
+	
+	autoStopAfter = AUTO_STOP_DELAY;
+}
 
 // wait for input in separate thread
 PI_THREAD (myThread)
 {
     int fd;
-    char *myfifo ="/tmp/robotIn";
+    char *myfifo = NAMED_PIPE_NAME;
     unlink(myfifo);
     mkfifo(myfifo, 0777);
     fd = open(myfifo, O_RDONLY);
-    if (verbose) printf("Opened FIFO\n");
+    DBG_ONLY(printf("Opened FIFO\n"));
     char c[3];
     while(1)
     {
         if (read(fd,c,3)==3)
         {
-            if (abs(c[0]-128)<=100) lDesiredSpeed = c[0] - 128;
-            if (abs(c[1]-128)<=100) rDesiredSpeed = c[1] - 128;
-			//temp
-			digitalWrite(lightsPin, c[2]!=0);
-			
-            if (verbose) printf("Got l=%i, r=%i.\n",lDesiredSpeed, rDesiredSpeed);
-            autoStopAfter = AUTO_STOP_DELAY;
+			c[0]-=128;
+			c[1]-=128;
+			DBG_ONLY(printf("Got l=%i, r=%i.\n",c[0], c[1]));
+			SetMotorsValue(abs(c[0]),abs(c[1]),c[0] < 0,c[1] < 0);
+            //temp
+			digitalWrite(lightsPin, c[2]==1);
         }
         delay(CYCLE_DELAY);
     }
 }
 
+void LEncoderHandler() {lCurSpeed++;}
+void REncoderHandler() {rCurSpeed++;}
+
 void setup()
 {
-    // Setup stuff:
+    //set allow file exec
+    umask (0);
     piHiPri(99);
     wiringPiSetupGpio(); // Initialize wiringPi -- using Broadcom pin numbers
 
     pinMode(lMotorDirPin, OUTPUT);
     pinMode(lMotorSpeedPin, OUTPUT);
+	wiringPiISR(lEncoderPin,INT_EDGE_FALLING,LEncoderHandler);
+	
     pinMode(rMotorDirPin, OUTPUT);
     pinMode(rMotorSpeedPin, OUTPUT);
+	wiringPiISR(rEncoderPin,INT_EDGE_FALLING,REncoderHandler);
 	
 	pinMode(lightsPin, OUTPUT);
 
@@ -74,40 +93,84 @@ void setup()
     softPwmCreate(rMotorSpeedPin,0,100);
 
     piThreadCreate (myThread);
-    if (verbose) printf("SetupComplete\n");
+    DBG_ONLY(printf("SetupComplete\n"));
+}
+
+boolean SyncMotors()
+{
+  float ratioDiff = (float)lCurSpeed / lCurSpeed + rCurSpeed) - (float)lDesiredPower / (lDesiredPower + rDesiredPower);
+  char absDiff1 = lRealPower - lDesiredPower;
+  char absDiff2 = rRealPower - rDesiredPower;
+  boolean isSameSign = (absDiff1 ^ absDiff2) >= 0;
+  char changeAmount = (abs(ratioDiff)>0.25 ? 3 : (abs(ratioDiff)>0.10 ? 2 : 1));
+  //DBG_ONLY(printf("ratioDiff=%d\n",ratioDiff));
+  //lmotor speed compared to rmotor speed is slower then desired
+  if (ratioDiff < -0.01f){
+    // here we have two options - either speed up l or slow down r.
+    // we choose that change, which will keep overall real power closer to desired value
+    // e. g. any motor will always try to keep its power as close to desired as possible.
+    if (lRealPower < 100 && ((!isSameSign && absDiff1 <= absDiff2) || (isSameSign && absDiff1 >= absDiff2)))
+      lRealPower+=min(changeAmount,100-lRealPower);
+    else
+      rRealPower-=min(changeAmount,rRealPower);
+    return true;
+  }
+  //lmotor speed compared to rmotor speed is faster then desired
+  else if (ratioDiff > 0.01f){
+    // same two options - either slow down l or speed up r.
+    if (rRealPower == 100 || (isSameSign && absDiff1 <= absDiff2) || (!isSameSign && absDiff1 >= absDiff2))
+      lRealPower-=min(changeAmount,lRealPower);
+    else
+      rRealPower+=min(changeAmount,100-rRealPower);
+    return true;
+  }
+  return false;
+}
+
+void UpdateMotors()
+{
+	boolean changed = false;
+	if (lDesiredPower == rDesiredPower && lDesiredPower >5)
+		changed |= SyncMotors();
+	if (lRealPower < lDesiredPower && rRealPower < rDesiredPower)
+	{
+		lRealPower++;
+		rRealPower++;
+		changed=true;
+	}
+	else if (lRealPower > lDesiredPower + 1 && rRealPower > rDesiredPower + 1) 
+	{
+		lRealPower--;
+		rRealPower--;
+		changed=true;                
+	}
+	if (changed)
+	{
+		digitalWrite(lMotorDirPin, lReverse);
+		softPwmWrite(lMotorSpeedPin,lRealPower);
+		digitalWrite(rMotorDirPin, !rReverse);
+		softPwmWrite(rMotorSpeedPin,rRealPower);
+	}
 }
 
 int main(void)
 {
-    //set allow file exec
-    umask (0);
     setup();
     while(1)
     {
-        if (lCurSpeed != lDesiredSpeed)
-        {
-            if (lCurSpeed < lDesiredSpeed) lCurSpeed = min(lDesiredSpeed, lCurSpeed + speedChangeStep);
-            else lCurSpeed = max(lDesiredSpeed, lCurSpeed - speedChangeStep);
-            digitalWrite(lMotorDirPin, lCurSpeed>0);
-            softPwmWrite(lMotorSpeedPin,abs(lCurSpeed));
-        }
-        if (rCurSpeed != rDesiredSpeed)
-        {
-            if (rCurSpeed < rDesiredSpeed) rCurSpeed = min(rDesiredSpeed, rCurSpeed + speedChangeStep);
-            else rCurSpeed = max(rDesiredSpeed, rCurSpeed - speedChangeStep);
-            digitalWrite(rMotorDirPin, rCurSpeed<0);
-            softPwmWrite(rMotorSpeedPin,abs(rCurSpeed));
-            if (verbose) printf("Current l=%i, r=%i.\n",lCurSpeed,rCurSpeed);
+		if (autoStopAfter<0 && (lDesiredPower!=0 || rDesiredPower !=0))
+		{
+			SetMotorsValue(0,0,lReverse,rReverse);
+			DBG_ONLY(printf("Auto Stopped..."));
 		}
-        if (autoStopAfter<0 && (lDesiredSpeed!=0 || rDesiredSpeed !=0))
-        {
-            lDesiredSpeed=0;
-			rDesiredSpeed=0;
-            if (verbose) printf("Auto Stopping...");
-        }
-        else
-            autoStopAfter-=CYCLE_DELAY;
+		else autoStopAfter-=CYCLE_DELAY;
+		if (cycleNum >= CYCLES_PER_CALIBRATION)
+		{
+			UpdateMotors();
+			cycleNum=0;
+		}
         delay(CYCLE_DELAY);
+		cycleNum++;
     }
 
     return 0;
