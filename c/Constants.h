@@ -9,10 +9,10 @@
 // Pin number declarations. We're using the Broadcom chip pin numbers.
 const char rMotorSpeedPin = 23;
 const char rMotorDirPin = 24;
-const char rEncoderPin = 11;
+const char rEncoderPin = 28;
 const char lMotorSpeedPin = 13;
 const char lMotorDirPin = 19;
-const char lEncoderPin = 10;
+const char lEncoderPin = 3;
 
 const char lightsPin = 26;
 
