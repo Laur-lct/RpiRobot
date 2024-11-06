@@ -1,0 +1,16 @@
+CC = gcc
+CFLAGS = -Wall -pthread -O2
+LIBS = -lwiringPi
+TARGET = motor_control
+SOURCES = motor_control.c
+
+$(TARGET): $(SOURCES)
+        $(CC) $(CFLAGS) -o $@ $^ $(LIBS)
+
+clean:
+        rm -f $(TARGET)
+
+install: $(TARGET)
+        sudo cp $(TARGET) /usr/local/bin/
+
+.PHONY: clean install

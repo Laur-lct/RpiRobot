@@ -1,0 +1,1 @@
+raspivid -n -mm matrix -w 640 -h 480 -fps 30 -ih -if both -br 60 -g 40 -pf high -t 0 -stm -ex fixedfps -b 4000000 -o -
