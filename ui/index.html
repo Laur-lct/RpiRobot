@@ -1,307 +1,286 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>Camera page</title>
-<script src="js/flowplayer-3.2.13.min.js"></script>
-<script src="js/jquery.min.js"></script>
-<script src="js/stick.js"></script>
-<style>
-    body {
-        font-family: Tahoma, Verdana, Arial, sans-serif;
-    }
-    #playerContainer {
-		width: 640px;
-		height: 480px;
-		margin:auto;
-		//float:left;
-    }
-	#controlArea {
-		position: relative;
-		width: 400px;
-		height:400px;
-		margin:auto;
-		//border: 1px solid red;
-		//float:right;
-	}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raspberry Pi Video Stream</title>
+    <script src="js/jmuxer.min.js"></script>
+	<script src="js/joystick-controller.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+        #video-container {
+            width: 960px;
+            max-width: 100%;
+            margin: 20px auto;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        #player {
+            width: 100%;
+            height: 100%;
+            background-color: black;
+        }
+        .status {
+            padding: 10px 20px;
+            margin: 10px 0;
+            border-radius: 4px;
+            background-color: #e2e2e2;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
 </head>
 <body>
-<input type="button" value="light" onclick=" mi.lights= mi.lights? 0:1);" />
-<div id="playerContainer" ></div>
-<div id="controlArea">
-	<canvas id="stage" width="400" height="400" ></canvas>	
-</div>
-<script>
-flowplayer("playerContainer", "/flash/flowplayer-3.2.18.swf", {
-                clip: {
-		    autoPlay: true,
-                    url: 'live',
-                    provider: 'rtmp',
-                    live: true,
-                    bufferLength: 0,
-                    bufferTime: 0,
-                },
+	<input type="button" value="light" onclick=" mi.lights= mi.lights? 0:1);" />
+    <div id="video-container">
+        <video id="player" autoplay playsinline preload="none"></video>
+    </div>
+    <div id="status" class="status disconnected">Disconnected</div>
+    <script>
+        const jmuxer = new JMuxer({
+            node: 'player',
+            mode: 'video',
+            flushingTime: 0,
+            fps: 33,
+            debug: false
+        });
 
-                plugins: {
-                     rtmp: {
-                        url: 'flowplayer.rtmp-3.2.3.swf',
-                        netConnectionUrl: 'rtmp://'+window.location.hostname+':1935/rtmp'
-                    }
-                }
-            });
-//stick
-var canvas = document.getElementById("stage");
-var context = canvas.getContext("2d");
-var rect = canvas.getBoundingClientRect();
+        let ws = null;
+         const statusDiv = document.getElementById('status');
 
-var stick = new Stick(100);
-var threshold = 0.1;
-var image = new Image();
-var mi = {l_speed:0, r_speed:0, lights:0};
-var sentMi = {l_speed:0, r_speed:0, lights:0};
-var sentTS =Date.now();
+         function connect() {
+             ws = new WebSocket('ws://'+window.location.host+':9001');
+             ws.binaryType = 'arraybuffer';
 
-var resendInterval = 1800;
-var minSendInterval = 65;
+             ws.onopen = () => {
+                 console.log('WebSocket connected');
+                 statusDiv.textContent = 'Connected';
+                 statusDiv.classList.remove('disconnected');
+                 statusDiv.classList.add('connected');
+                 document.body.focus();
 
-function draw () {
-	context.clearRect(0, 0, rect.width, rect.height);
-	drawValue();
-	drawStick();
-};
+             };
 
-function drawValue () {
-	context.save();
-	context.strokeText("x="+mi.l_speed+", y="+mi.r_speed+",l="+stick.normalLength,5,15);
-	context.restore();
-};
+             ws.onclose = () => {
+                 console.log('WebSocket disconnected');
+                 statusDiv.textContent = 'Disconnected - Reconnecting...';
+                 statusDiv.classList.remove('connected');
+                 statusDiv.classList.add('disconnected');
+             };
 
-function drawStick () {
-	
-	context.save();
-	// Limit
-	context.drawImage(
-		image,
-		0, 0,
-		88, 88,
-		stick.limit.x - stick.maxLength*2, stick.limit.y - stick.maxLength*2,
-		stick.maxLength*4, stick.maxLength*4
-	);
-	// Input
-	var knobSize = 62;
-	context.drawImage(
-		image,
-		89, 14,
-		knobSize, knobSize,
-		stick.input.x - (knobSize * 1.5), stick.input.y - (knobSize * 1.5),
-		knobSize*3, knobSize*3
-	);
-	context.restore();
-};
+             ws.onerror = (error) => {
+                 console.error('WebSocket error:', error);
+                 ws.close();
 
-function StartMove(e){
-	e.preventDefault();
-        var x = e.touches? e.touches[0].clientX : e.clientX;
-        var y = e.touches? e.touches[0].clientY : e.clientY;
-	stick.setLimitXY(x - rect.left, y - rect.top);
-	stick.setInputXY(x - rect.left, y - rect.top);
-	stick.active = true;
-	main();
-}
+                 // attempt to reconnect after 2 seconds
+                 setTimeout(connect, 2000);
+             };
 
-function Move(e){
-	if (stick.active){
-		e.preventDefault();
-		var x = e.touches? e.touches[0].clientX : e.clientX;
-        	var y = e.touches? e.touches[0].clientY : e.clientY;
-		stick.setInputXY(x - rect.left, y - rect.top);
-		main();
-	}
-}
+             ws.onmessage = (event) => {
+                 // Feed the H.264 NAL units to JMuxer
+                 jmuxer.feed({
+                     video: new Uint8Array(event.data)
+                 });
+             };
+         }
 
-function EndMove(e){
-	stick.active = false;
-	stick.setLimitXY(rect.width/2,rect.height/2);
-	stick.setInputXY(rect.width/2,rect.height/2);
-	main();
-}
+         // Start connection when page loads
+         //connect();
 
-// bind keyboard events to game functions (movement, etc)
-var keys = {
-	fw:false,
-	bw:false,
-	tl:false,
-	tr:false
-	};
-function bindKeys() {
-	document.onkeydown = function(e) {
-		e = e || window.event;
-        	switch (e.keyCode) { // which key was pressed?
-			case 38: // up, move player forward, ie. increase speed
-            		case 87:
-				e.preventDefault();
-				if (!keys.fw){
-					stick.input.y-=stick.maxLength/2;
-					keys.fw = true;
-					main();
-				}
-                	break;
-            		case 40: // down, move player backward, set negative speed
-            		case 83:
-				e.preventDefault();
-				if (!keys.bw){
-					stick.input.y+=stick.maxLength/2;
-					keys.bw=true;
-					main();
-				}
-                	break;
-			case 37: // left, rotate player left
-            		case 65:
-                		e.preventDefault();
-				if (!keys.tl){
-					stick.input.x-=stick.maxLength/2;
-					keys.tl=true;
-					main();
-				}
-                	break;
-			case 39: // right, rotate player right
-            		case 68:
-                		e.preventDefault();
-				if (!keys.tr){
-					stick.input.x+=stick.maxLength/2;
-					keys.tr=true;
-					main();
-				}
-                	break;
-		}
-	};
-	document.onkeyup = function(e) {
-		e = e || window.event;
-        	switch (e.keyCode) {
-			case 38:
-			case 87:
-				e.preventDefault();
-				if(keys.fw){
-					stick.input.y+=stick.maxLength/2;
-					keys.fw=false;
-					main();
-				}
-               		break;
-			case 40:
-            		case 83:
-                		e.preventDefault();
-				if (keys.bw){
-					stick.input.y-=stick.maxLength/2;
-					keys.bw = false;
-					main();
-				}
-                	break;
-			case 37:
-			case 65:
-				e.preventDefault();
-				if (keys.tl){
-					stick.input.x+=stick.maxLength/2;
-					keys.tl = false;
-					main();
-				}
-                	break;
-			case 39:
-            		case 68:
-                		e.preventDefault();
-				if (keys.tr){
-					stick.input.x-=stick.maxLength/2;
-					keys.tr = false;
-					main();
-				}
-			break;
-			case 32:
-			case 17:
-			case 76:
-				mi.lights=mi.lights? 0:1;
-			break;
-		}
-	};
-}
-
-function init () {
-	$(window).resize(function(){ rect = canvas.getBoundingClientRect();});
-	$(canvas).on({
-			'mousedown':StartMove,
-			'touchstart':StartMove
-		});
-	$(document).on({
-			'mousemove':Move,
-			'touchmove':Move
-		});
-	$(document).on({
-			'mouseup': EndMove,
-			'touchend':EndMove,
-			'touchcancel':EndMove
-		});
-	bindKeys();
+         // Handle page visibility changes to manage resources
+         document.addEventListener('visibilitychange', () => {
+             if (document.hidden) {
+                 // Page is hidden, close the connection
+                 if (ws) {
+                     ws.close();
+                     ws = null;
+                 }
+             } else {
+                 // Page is visible again, reconnect
+                 if (!ws || ws.readyState === WebSocket.CLOSED) {
+                     connect();
+                 }
+             }
+         });
 		
-	stick.setLimitXY(rect.width/2,rect.height/2);
-	stick.setInputXY(rect.width/2,rect.height/2);
-	image.src = "img/stick.png";
-	image.onload = function () {
-		main();
-		setInterval(sendMotorInput,minSendInterval);
-	};
-};
+		 //stick
+		 var mi = {l_speed:0, r_speed:0, lights:0};
+		 var sentMi = {l_speed:0, r_speed:0, lights:0};
+		 var sentTS =Date.now();
+		 var opts = {
+          x: "10%",
+          y: "30%",
+          opacity: 0.5,
+          maxRange: 80,
+		  level: 100,
+          radius: 70,
+          joystickRadius: 40,
+          joystickClass: "joystick",
+          distortion: true,
+          hideContextMenu: true,
+        }
+		const stick = new JoystickController.default(opts,
+		(data) => {
+			var leveledDist = data.distance / opts.maxRange * opts.level;
+			if (leveledDist <10) {
+				mi.l_speed =  0;
+	            mi.r_speed =  0;
+				return;
+			}
+			var r = data.y/ opts.maxRange * opts.level - data.x/ opts.maxRange * opts.level * 0.5;
+			var l = data.y/ opts.maxRange * opts.level + data.x/ opts.maxRange * opts.level * 0.5;
+			var scale = leveledDist/Math.abs(l);
+			if (scale < 1){
+				l *= scale;
+				r *= scale;
+			}
+			scale = leveledDist/Math.abs(r);
+			if (scale < 1){
+				l *= scale;
+				r *= scale;
+			}
+		  if (l < -100) l = -100;
+		  else if (l > 100) l = 100;
+		  if (r < -100) r = -100;
+		  else if (r > 100) r = 100;
+          mi.l_speed =  Math.round(l);
+          mi.r_speed =  Math.round(r);
+		  console.log(mi);
+        }
+	);
 
-function main () {
-	stick.update();
-	updateInput();
-	draw();
-};
+		 var resendInterval = 1800;
+		 var minSendInterval = 65;
 
-function updateInput () {
-	mi.l_speed =0;
-	mi.r_speed =0;
-	if (/*stick.active && */stick.normalLength > threshold) {
-		mi.l_speed = stick.normalLength * stick.normal.y - stick.normalLength * stick.normal.x * 0.5;
-		mi.r_speed = stick.normalLength * stick.normal.y + stick.normalLength * stick.normal.x * 0.5;
-		var ratio = stick.normalLength/Math.abs(mi.l_speed);
-		if (ratio < 1){
-			mi.l_speed *= ratio;
-			mi.r_speed *= ratio;
-		}
-		ratio = stick.normalLength/Math.abs(mi.r_speed);
-		if(ratio<1){
-			mi.l_speed *= ratio;
-			mi.r_speed *= ratio;
-		}
-		mi.l_speed = Math.round(mi.l_speed * 100);
-		mi.r_speed = Math.round(mi.r_speed * 100);
-	}
-};
+		
 
-function sendMotorInput(){
-	//do not send too often or same values
-	var msek = Date.now() - sentTS;
-	if (mi.l_speed == sentMi.l_speed && mi.r_speed == sentMi.r_speed && mi.lights == sentMi.lights)
-		if ((mi.l_speed == 0 && mi.r_speed == 0) || msek < resendInterval)
-			return;
-	else if (msek < minSendInterval)
-		return;
-	sentTS = Date.now();
-	sentMi.l_speed=mi.l_speed;
-	sentMi.r_speed=mi.r_speed;
-	sentMi.lights = mi.lights;
-	$.ajax({
-	    url:"http://"+window.location.hostname+
-		"/robotInput.cgi?l_speed="+sentMi.r_speed+"&r_speed="+sentMi.l_speed+"&lights="+sentMi.lights,
-	    cache: false,
-	})
-	.fail(function( data ) {
-		console.log( "request failed" );
-	})
-	.done(function( data ) {
-		console.log( "response sample:", data.slice( 0, 100 ) );
-	});
-}
+		 // bind keyboard events to game functions (movement, etc)
+		 var keys = {
+		 	fw:false,
+		 	bw:false,
+		 	tl:false,
+		 	tr:false
+		 	};
+		 function bindKeys() {
+		 	document.onkeydown = function(e) {
+		 		e = e || window.event;
+		         	switch (e.keyCode) { // which key was pressed?
+		 			case 38: // up, move player forward, ie. increase speed
+		             		case 87:
+		 				e.preventDefault();
+		 				if (!keys.fw){
+							stick.updateCoordinates(stick.centerX + stick.x, stick.centerY-0.7*stick.options.maxRange);
+		 					keys.fw = true;
+		 				}
+		                 	break;
+		             		case 40: // down, move player backward, set negative speed
+		             		case 83:
+		 				e.preventDefault();
+		 				if (!keys.bw){
+		 					stick.updateCoordinates(stick.centerX + stick.x, stick.centerY+0.7*stick.options.maxRange);
+		 					keys.bw=true;
+		 				}
+		                 	break;
+		 			case 37: // left, rotate player left
+		             		case 65:
+		                 		e.preventDefault();
+		 				if (!keys.tl){
+		 					stick.updateCoordinates(stick.centerX - 0.7*stick.options.maxRange, stick.centerY- stick.y);
+		 					keys.tl=true;
+		 				}
+		                 	break;
+		 			case 39: // right, rotate player right
+		             		case 68:
+		                 		e.preventDefault();
+		 				if (!keys.tr){
+		 					stick.updateCoordinates(stick.centerX + 0.7*stick.options.maxRange, stick.centerY - stick.y);
+		 					keys.tr=true;
+		 				}
+		                 	break;
+		 		}
+		 	};
+		 	document.onkeyup = function(e) {
+		 		e = e || window.event;
+		         	switch (e.keyCode) {
+		 			case 38:
+		 			case 87:
+		 				e.preventDefault();
+		 				if(keys.fw){
+		 					stick.updateCoordinates(stick.centerX + stick.x, stick.centerY);
+		 					keys.fw=false;
+		 				}
+		                		break;
+		 			case 40:
+		             		case 83:
+		                 		e.preventDefault();
+		 				if (keys.bw){
+		 					stick.updateCoordinates(stick.centerX + stick.x, stick.centerY);
+		 					keys.bw = false;
+		 				}
+		                 	break;
+		 			case 37:
+		 			case 65:
+		 				e.preventDefault();
+		 				if (keys.tl){
+		 					stick.updateCoordinates(stick.centerX, stick.centerY - stick.y);
+		 					keys.tl = false;
+		 				}
+		                 	break;
+		 			case 39:
+		             		case 68:
+		                 		e.preventDefault();
+		 				if (keys.tr){
+		 					stick.updateCoordinates(stick.centerX, stick.centerY - stick.y);
+		 					keys.tr = false;
+		 				}
+		 			break;
+		 			case 32:
+		 			case 17:
+		 			case 76:
+		 				mi.lights=mi.lights? 0:1;
+		 			break;
+		 		}
+		 	};
+		 }
 
-init();
-</script>
-</body>
-</html>
+		 function init () {
+		 	bindKeys();
+		 	setInterval(sendMotorInput,minSendInterval);
+		 };
+
+		 function sendMotorInput(){
+		 	//do not send too often or same values
+		 	var msek = Date.now() - sentTS;
+		 	if (mi.l_speed == sentMi.l_speed && mi.r_speed == sentMi.r_speed && mi.lights == sentMi.lights)
+		 		if ((mi.l_speed == 0 && mi.r_speed == 0) || msek < resendInterval)
+		 			return;
+		 	else if (msek < minSendInterval)
+		 		return;
+		 	sentTS = Date.now();
+		 	sentMi.l_speed=mi.l_speed;
+		 	sentMi.r_speed=mi.r_speed;
+		 	sentMi.lights = mi.lights;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(new Int8Array([sentMi.l_speed, sentMi.r_speed, sentMi.lights]));
+            }
+		 }
+
+		 init();
+     </script>
+ </body>
+ </html>
